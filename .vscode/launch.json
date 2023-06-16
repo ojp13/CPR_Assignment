@@ -1,0 +1,13 @@
+{
+    "version": "0.0.1",
+    "configurations": [
+        {
+            "name": "Launch erlang",
+            "type": "erlang",
+            "request": "launch",
+            "cwd": "${workspaceRoot}",
+            "arguments": "-config dev -s sample",
+            "preLaunchTask": "rebar3 compile"
+        }
+    ]
+}
