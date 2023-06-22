@@ -38,27 +38,42 @@ print() ->
 
 
 get({Source_Currency, Target_Currency}) when (Source_Currency =/= usd) and (Target_Currency =/= usd) ->
-    First_Rate = get({Source_Currency, usd}),
-    Second_Rate = get({Target_Currency, usd}),
-    case {First_Rate, Second_Rate} of
-        {{error, instance}, {error, instance}} -> 
+    First_Rate_Response = get({Source_Currency, usd}),
+    Second_Rate_Response = get({Target_Currency, usd}),
+    case {First_Rate_Response, Second_Rate_Response} of
+        {{error, _}, {error, _}} -> 
             {error, "Neither Component Rate Defined"};
-        {{error, instance}, _} -> 
+        {{error, _}, _} -> 
             {error, "Source Currency Rate Not Defined"};
-        {_, {error, instance}} -> 
+        {_, {error, _}} -> 
             {error, "Target Currency Source Rate Defined"};
-        _ -> 
+        {{_, First_Rate}, {_, Second_Rate}} -> 
             First_Rate / Second_Rate
     end;
 get({Source_Currency, Target_Currency}) ->
     currency_converter ! {read, Source_Currency, Target_Currency, self()},
     receive
         {_, {error, instance}} -> 
-            {error, instance};
+            get(reverse, {Source_Currency, Target_Currency});
+        {_, undefined} ->
+            {error, undefined};
         {_, Rate} ->
-            Rate
+            {ok, Rate}
     end.
 
+get(reverse, {Source_Currency, Target_Currency}) ->
+    currency_converter ! {read, Target_Currency, Source_Currency, self()},
+    receive
+        {_, {error, instance}} -> 
+            {error, instance};
+        {_, undefined} ->
+            {error, undefined};
+        {_, Rate} ->
+            {ok, 1 / Rate}
+    end.
+
+set({Source_Currency, Target_Currency}, _) when (Source_Currency =/= usd) and (Target_Currency =/= usd) ->
+    {error, not_usd};
 set({Source_Currency, Target_Currency}, Rate) when (Source_Currency =/= usd) and (Target_Currency == usd) ->
     set({Target_Currency, Source_Currency}, 1 / Rate);
 set({Source_Currency, Target_Currency}, Rate) ->

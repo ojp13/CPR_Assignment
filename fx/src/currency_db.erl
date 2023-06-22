@@ -1,6 +1,6 @@
 -module(currency_db).
 
--export([new/0, write/4, delete/2, destroy/1, read/3, read/4, match/3]).
+-export([new/0, write/4, delete/2, destroy/1, read/3, match/3]).
 
 -include("pair_rate.hrl").
 
@@ -20,17 +20,10 @@ delete(Source_Currency, TabId) ->
 
 read(Source_Currency, Target_Currency, TabId) ->
     case ets:lookup(TabId, #pair{source_currency=Source_Currency, target_currency=Target_Currency}) of 
-        [] -> read(reverse, Source_Currency, Target_Currency, TabId);
-        [#pair_rate{rate=Rate}] -> Rate
-    end.
-
-read(reverse, Source_Currency, Target_Currency, TabId) ->
-    case ets:lookup(TabId, #pair{source_currency=Target_Currency, target_currency=Source_Currency}) of 
         [] -> {error, instance};
         [#pair_rate{rate=undefined}] -> 
             undefined;
-        [#pair_rate{rate=Rate}] -> 
-            1 / Rate
+        [#pair_rate{rate=Rate}] -> Rate
     end.
 
 match(Source_Currency, Target_Currency, TabId) ->
