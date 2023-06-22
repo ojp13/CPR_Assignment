@@ -1,0 +1,12 @@
+$ chmod u+x currency_test
+%% -*- erlang -*-
+
+main([String]) ->
+    currency:start_link([gbr, eur]),
+    currency:set({gbr, usd}, 2),
+    currency:read(usd, gbr);
+main(_) ->
+    usage().
+
+usage() ->
+    io:format("usage: testing currency functionality").
