@@ -1,6 +1,6 @@
 # CPR_Assignment
 
-mylib
+fx
 =====
 
 An OTP library

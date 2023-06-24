@@ -15,6 +15,18 @@
 % -type client() :: pid() | {alias(), node()}.
 % -type alias() :: atom().
 
+% Type Guards
+is_usd(X) ->
+    case X of
+        usd ->
+            true;
+        _ ->
+            false
+    end.
+
+is_currency(X) ->
+    Currency_List = [usd,eur,usd,cad,gbp,chf,jpy,aud,nzd],
+    lists:member(X, Currency_List).
 
 -spec start_link(Currencies :: [currency()]) -> {ok,currency_converter()}.
 start_link(Currencies) ->
@@ -89,6 +101,16 @@ set({Source_Currency, Target_Currency}, Rate) ->
             end
     end.
 
+get_major_currencies() ->
+    currency_converter ! {read_matches, usd, self()},
+    receive
+        Response ->
+            Response;
+        _ ->
+            {error, instance}
+    end.
+
+
 currency_server(TabId) ->
     receive 
         {read, Source_Currency, Target_Currency, Pid} ->
@@ -98,6 +120,10 @@ currency_server(TabId) ->
             currency_server(TabId);
         {set, Source_Currency, Target_Currency, Rate, Pid} -> 
             Response = currency_db:write(Source_Currency, Target_Currency, Rate, TabId),
+            Pid ! Response,
+            currency_server(TabId);
+        {read_matches, Currency, Pid} -> 
+            Response = currency_db:find_matches(TabId, Currency),
             Pid ! Response,
             currency_server(TabId)
     end.
