@@ -5,7 +5,7 @@
 -compile(export_all).
 -compile({no_auto_import,[get/1]}).
 
--type currency() :: usd|eur|usd|cad|gbp|chf|jpy|aud|nzd.
+-type currency() :: eur|usd|cad|gbp|chf|jpy|aud|nzd.
 -type exotic_currency() :: atom().
 -type pair() :: {currency(),currency()} | {currency(),exotic_currency()} |
           {exotic_currency(),currency()}.
@@ -16,6 +16,7 @@
 % -type alias() :: atom().
 
 % Type Guards
+-spec is_usd(X :: atom()) -> boolean().
 is_usd(X) ->
     case X of
         usd ->
@@ -24,6 +25,7 @@ is_usd(X) ->
             false
     end.
 
+-spec is_currency(X :: atom()) -> boolean().
 is_currency(X) ->
     Currency_List = [usd,eur,usd,cad,gbp,chf,jpy,aud,nzd],
     lists:member(X, Currency_List).
@@ -101,14 +103,33 @@ set({Source_Currency, Target_Currency}, Rate) ->
             end
     end.
 
-get_major_currencies() ->
-    currency_converter ! {read_matches, usd, self()},
+
+get_matching_currencies(Currency) ->
+    currency_converter ! {read_matches, Currency, self()},
     receive
         Response ->
-            Response;
-        _ ->
-            {error, instance}
+            Response
     end.
+
+
+generate_test(Currency) -> 
+    io:format("Testing Major Pair for Currency ~p ~n", [Currency]),
+    Major_Rate = rand:uniform(),
+    io:format("Major rate for ~p set to ~p ~n", [Currency, Major_Rate]),
+    set({usd, Currency}, Major_Rate),
+    {_, Set_Rate} = get({usd, Currency}),
+    io:format("Major rate for ~p got at ~p ~n", [Currency, Set_Rate]),
+    {_, Reverse_Rate} = get({Currency, usd}),
+    io:format("Reverse rate for ~p got at ~p ~n", [Currency, Reverse_Rate]),
+    case ((abs((1 / Set_Rate) - Reverse_Rate)) < 0.0001) and (abs(Major_Rate - Set_Rate) < 0.0001) of
+        true ->
+            io:format("Major and Reverse Rate set correctly for ~p ~n", [Currency]),
+            {ok, pass};
+        false -> 
+            io:format("Error in setting rates for ~p ~n", [Currency]),
+            {error, failed}
+    end.
+
 
 
 currency_server(TabId) ->
@@ -127,3 +148,26 @@ currency_server(TabId) ->
             Pid ! Response,
             currency_server(TabId)
     end.
+
+
+start_test_server() ->
+        TestServer = spawn(?MODULE, test_data_process, []),
+        register(test_server, TestServer),
+        {ok, currency_converter}.
+test_data_process() ->
+        Major_Currencies = get_matching_currencies(usd),
+        io:format("Found Major Pairs: ~p ~n", [Major_Currencies]),
+        Result = generate_major_pair_tests(Major_Currencies),
+        io:format("Result of testing: ~p ~n", [Result]),
+        timer:sleep(5000),
+        test_data_process().
+    
+generate_major_pair_tests([H|T]) -> 
+        case generate_test(H) of
+            {ok, _} -> 
+                generate_major_pair_tests(T);
+            Error -> 
+                Error
+            end;
+    generate_major_pair_tests([]) ->
+        {ok, testing_complete}.
