@@ -25,28 +25,8 @@ is_usd(X) ->
     end.
 
 is_currency(X) ->
-    case X of
-        eur ->
-            true;
-        usd ->
-            true; 
-        cad ->
-            true;
-        gbp ->
-            true;
-        chf ->
-            true;
-        jpy ->
-            true;
-        aud ->
-            true;
-        nzd ->
-            true;
-        _ ->
-            false
-    end.
-
-
+    Currency_List = [usd,eur,usd,cad,gbp,chf,jpy,aud,nzd],
+    lists:member(X, Currency_List).
 
 start_link(Currencies) ->
     CurrencyConverter = spawn(?MODULE, init, [Currencies]),
@@ -121,6 +101,16 @@ set({Source_Currency, Target_Currency}, Rate) ->
             end
     end.
 
+get_major_currencies() ->
+    currency_converter ! {read_matches, usd, self()},
+    receive
+        Response ->
+            Response;
+        _ ->
+            {error, instance}
+    end.
+
+
 currency_server(TabId) ->
     receive 
         {read, Source_Currency, Target_Currency, Pid} ->
@@ -130,6 +120,10 @@ currency_server(TabId) ->
             currency_server(TabId);
         {set, Source_Currency, Target_Currency, Rate, Pid} -> 
             Response = currency_db:write(Source_Currency, Target_Currency, Rate, TabId),
+            Pid ! Response,
+            currency_server(TabId);
+        {read_matches, Currency, Pid} -> 
+            Response = currency_db:find_matches(TabId, Currency),
             Pid ! Response,
             currency_server(TabId)
     end.

@@ -1,6 +1,6 @@
 -module(currency_db).
 
--export([new/0, write/4, delete/2, destroy/1, read/3, match/3]).
+-export([new/0, write/4, delete/2, destroy/1, read/3, match/3, find_matches/2]).
 
 -include("pair_rate.hrl").
 
@@ -28,5 +28,10 @@ read(Source_Currency, Target_Currency, TabId) ->
 
 match(Source_Currency, Target_Currency, TabId) ->
     lists:flatten(ets:match(TabId, #pair_rate{pair=#pair{source_currency=Source_Currency, target_currency=Target_Currency}, rate='$0'})).
+
+find_matches(Currency, TabId) -> 
+    Where_Source_Currency = ets:match(TabId, {#pair{source_currency=Currency}}),
+    Where_Target_Currency = ets:match(TabId, {#pair{target_currency=Currency}}),
+    Where_Source_Currency ++ Where_Target_Currency.
 
         
