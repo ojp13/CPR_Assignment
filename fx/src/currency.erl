@@ -45,7 +45,24 @@ generate_pair_rates([], _) ->
     [].
 
 -spec get(pair()) -> {error,unknown_pair|undefined}|{ok,exchange_rate()}.
-get({Source_Currency, Target_Currency}) when (Source_Currency =/= usd) and (Target_Currency =/= usd) ->
+get({Source_Currency, Target_Currency}) ->
+    case is_currency(Source_Currency) and is_currency(Target_Currency) of
+        % Simple case. They should either match against usd or they aren't defined yet
+        true -> 
+            get(standard, {Source_Currency, Target_Currency});
+        false -> 
+            case check_if_both_in_pair_are_added({Source_Currency, Target_Currency}) of
+                % At this point, we know both of these currencies have been added, whether they'
+                {ok, _} -> 
+                    Required_Conversions = find_path({Source_Currency, Target_Currency}),
+                    {ok, calculate_total_rate_for_conversion_path(Required_Conversions)};
+                    % find_path would return a result if we had a way to convert
+                Error ->
+                    Error
+            end
+    end.
+
+get(standard, {Source_Currency, Target_Currency}) when (Source_Currency =/= usd) and (Target_Currency =/= usd) ->
     First_Rate_Response = get({Source_Currency, usd}),
     Second_Rate_Response = get({Target_Currency, usd}),
     case {First_Rate_Response, Second_Rate_Response} of
@@ -58,7 +75,7 @@ get({Source_Currency, Target_Currency}) when (Source_Currency =/= usd) and (Targ
         {{_, First_Rate}, {_, Second_Rate}} -> 
             First_Rate / Second_Rate
     end;
-get({Source_Currency, Target_Currency}) ->
+get(standard, {Source_Currency, Target_Currency}) ->
     currency_converter ! {read, Source_Currency, Target_Currency, self()},
     receive
         {_, {error, instance}} -> 
@@ -67,8 +84,18 @@ get({Source_Currency, Target_Currency}) ->
             {error, undefined};
         {_, Rate} ->
             {ok, Rate}
-    end.
-
+    end;
+get(exotic, {Source_Currency, Target_Currency}) ->
+    % This exotic path just removes some checks as they have to be done higher up
+    currency_converter ! {read, Source_Currency, Target_Currency, self()},
+    receive
+        {_, {error, instance}} -> 
+            get(reverse, {Source_Currency, Target_Currency});
+        {_, undefined} ->
+            {error, undefined};
+        {_, Rate} ->
+            {ok, Rate}
+    end;
 get(reverse, {Source_Currency, Target_Currency}) ->
     currency_converter ! {read, Target_Currency, Source_Currency, self()},
     receive
@@ -82,9 +109,12 @@ get(reverse, {Source_Currency, Target_Currency}) ->
 
 -spec set(pair(),exchange_rate()) -> {error,unknown_pair|not_usd}|ok.
 set({Source_Currency, Target_Currency}, Rate) -> 
+
     case is_currency(Source_Currency) and is_currency(Target_Currency) of 
-        true -> set(standard, {Source_Currency, Target_Currency}, Rate);
-        false -> set(exotic, {Source_Currency, Target_Currency}, Rate)
+        true -> 
+            set(standard, {Source_Currency, Target_Currency}, Rate);
+        false -> 
+            set(exotic, {Source_Currency, Target_Currency}, Rate)
     end.
 
 set(standard, {Source_Currency, Target_Currency}, _) when (Source_Currency =/= usd) and (Target_Currency =/= usd) ->
@@ -104,25 +134,16 @@ set(standard, {Source_Currency, Target_Currency}, Rate) ->
             end
     end;
 set(exotic, {Source_Currency, Target_Currency}, Rate) -> 
-    % Check if we have any pairs for these exotic currencies
-    % If we can't find a match for either of them, then one of them doesn't exist
-    Source_Check = get_matching_currencies(Source_Currency),
-    Target_Check = get_matching_currencies(Target_Currency),
-
-    % Exotic pairs are initialised against the usd
-    case Source_Check == [] of
-        true ->
-            {error, source_not_known};
-        false ->
-            case Target_Check == [] of
-                true -> {error, target_not_known};
-                false -> 
-                    currency_converter ! {set, Source_Currency, Target_Currency, Rate, self()},
-                    receive
-                        _ -> 
-                            ok
-                    end
-            end
+    % If both exotic currencies have been added, we can start to set them
+    case check_if_both_in_pair_are_added({Source_Currency, Target_Currency}) of
+        {ok, _} -> 
+            currency_converter ! {set, Source_Currency, Target_Currency, Rate, self()},
+                receive
+                    _ -> 
+                        ok
+                end;
+        Error ->
+            Error
     end.
 
 currency_server(TabId) ->
@@ -140,8 +161,19 @@ currency_server(TabId) ->
             Response = currency_db:write(Source_Currency, Target_Currency, Rate, TabId),
             Pid ! Response,
             currency_server(TabId);
-        {read_matches, Currency, Pid} -> 
+        {read_pairs, Currency, Pid} -> 
+            % Returns a list all the pairs that are defined that include the Currency
             Response = currency_db:find_matches(Currency, TabId),
+            Pid ! Response,
+            currency_server(TabId);
+        {read_paired_currencies, Currency, Pid} -> 
+            % Returns a list of all the Currencies that are paired to Currency
+            Response = currency_db:find_paired_currencies(Currency, TabId),
+            Pid ! Response,
+            currency_server(TabId);
+        {read_paired_and_defined_currencies, Currency, Pid} -> 
+            % Returns a list of all the Currencies that are paired to Currency
+            Response = currency_db:find_paired_and_defined_currencies(Currency, TabId),
             Pid ! Response,
             currency_server(TabId);
         {remove_exotic, Exotic_Currency, Pid} ->
@@ -156,19 +188,12 @@ start_test_server() ->
         register(test_server, TestServer),
         {ok, currency_converter}.
 test_data_process() ->
-        Major_Currencies = get_matching_currencies(usd),
+        Major_Currencies = get_currencies_paired_with_this_currency(usd),
         io:format("Found Major Pairs: ~p ~n", [Major_Currencies]),
         Result = generate_major_pair_tests(Major_Currencies),
         io:format("Result of testing: ~p ~n", [Result]),
         timer:sleep(5000),
         test_data_process().
-
-get_matching_currencies(Currency) ->
-    currency_converter ! {read_matches, Currency, self()},
-    receive
-        Response ->
-            Response
-    end.
     
 generate_major_pair_tests([H|T]) -> 
         case generate_test(H) of
@@ -222,3 +247,75 @@ remove(Exotic_Currency) ->
             end
     end.
 
+get_currency_pairs(Currency) ->
+    currency_converter ! {read_pairs, Currency, self()},
+    receive
+        Response ->
+            Response
+    end.
+
+get_currencies_paired_with_this_currency(Currency) ->
+    currency_converter ! {read_paired_currencies, Currency, self()},
+    receive
+        Response ->
+            Response
+    end.
+
+get_paired_and_defined_currencies(Currency) -> 
+    currency_converter ! {read_paired_and_defined_currencies, Currency, self()},
+    receive
+        Response ->
+            Response
+    end.
+
+
+
+% Attempts to find a path of currency conversions between the source currency and
+% the target currency
+- spec find_path(Pair :: pair()) -> [pair()].
+find_path({Source_Currency, Target_Currency}) ->
+    % Base case is that they are paired already
+    Source_Pairs = get_paired_and_defined_currencies(Source_Currency),
+    io:format("Source Pairs: ~p ~n", [Source_Pairs]),
+    case lists:member(Target_Currency, Source_Pairs) of
+        true -> [{Source_Currency, Target_Currency}];
+        false -> 
+            % This is the harder condition. Now we need to start looking at intersections
+            Target_Pairs = get_paired_and_defined_currencies(Target_Currency),
+            io:format("Target Pairs: ~p ~n", [Target_Pairs]),
+            Intersection = list_intersection(Source_Pairs, Target_Pairs),
+            io:format("Intersection: ~p ~n", [Intersection]),
+            [ Intermediary_Currency | _ ] = Intersection,
+            % We will only handle 1 degree of separate between 2 Currencies. This list is the
+            % 2 exchanges that need to happen to perform the conversion
+            [{Source_Currency, Intermediary_Currency}, {Intermediary_Currency, Target_Currency}]
+    end.
+
+calculate_total_rate_for_conversion_path([{Source_Currency, Target_Currency}|T]) -> 
+    {_, Rate} = get(exotic, {Source_Currency, Target_Currency}),
+    Rate * calculate_total_rate_for_conversion_path(T);
+calculate_total_rate_for_conversion_path([]) -> 
+    1.
+
+
+list_intersection(List1, List2) ->
+    SortedList1 = lists:usort(List1),
+    lists:filter(fun(Element) -> lists:member(Element, SortedList1) end, lists:usort(List2)).
+
+check_if_both_in_pair_are_added({Source_Currency, Target_Currency}) -> 
+    % Check if we have any pairs for these exotic currencies
+    % If we can't find a match for either of them, then one of them doesn't exist
+    Source_Check = get_currency_pairs(Source_Currency),
+    Target_Check = get_currency_pairs(Target_Currency),
+
+    % Exotic pairs are initialised against the usd
+    case Source_Check == [] of
+        true ->
+            {error, source_not_known};
+        false ->
+            case Target_Check == [] of
+                true -> {error, target_not_known};
+                false -> 
+                    {ok, both_exist}
+            end
+    end.
