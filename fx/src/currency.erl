@@ -15,6 +15,38 @@
 % -type client() :: pid() | {alias(), node()}.
 % -type alias() :: atom().
 
+% Type Guards
+is_usd(X) ->
+    case X of
+        usd ->
+            true;
+        _ ->
+            false
+    end.
+
+is_currency(X) ->
+    case X of
+        eur ->
+            true;
+        usd ->
+            true; 
+        cad ->
+            true;
+        gbp ->
+            true;
+        chf ->
+            true;
+        jpy ->
+            true;
+        aud ->
+            true;
+        nzd ->
+            true;
+        _ ->
+            false
+    end.
+
+
 
 start_link(Currencies) ->
     CurrencyConverter = spawn(?MODULE, init, [Currencies]),
