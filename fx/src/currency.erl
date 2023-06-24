@@ -16,9 +16,11 @@
 % -type alias() :: atom().
 
 
+-spec start_link(Currencies :: [currency()]) -> {ok,currency_converter()}.
 start_link(Currencies) ->
     CurrencyConverter = spawn(?MODULE, init, [Currencies]),
-    register(currency_converter, CurrencyConverter).
+    register(currency_converter, CurrencyConverter),
+    {ok, currency_converter}.
 
 init(Currencies) ->
     TabId = currency_db:new(),
@@ -33,10 +35,7 @@ generate_pair_rates([H|T], TabId) when H == usd ->
 generate_pair_rates([], _) ->
     [].
 
-print() ->
-    currency_converter ! print.
-
-
+-spec get(pair()) -> {error,unknown_pair|undefined}|{ok,exchange_rate()}.
 get({Source_Currency, Target_Currency}) when (Source_Currency =/= usd) and (Target_Currency =/= usd) ->
     First_Rate_Response = get({Source_Currency, usd}),
     Second_Rate_Response = get({Target_Currency, usd}),
@@ -72,6 +71,7 @@ get(reverse, {Source_Currency, Target_Currency}) ->
             {ok, 1 / Rate}
     end.
 
+-spec set(pair(),exchange_rate()) -> {error,unknown_pair|not_usd}|ok.
 set({Source_Currency, Target_Currency}, _) when (Source_Currency =/= usd) and (Target_Currency =/= usd) ->
     {error, not_usd};
 set({Source_Currency, Target_Currency}, Rate) when (Source_Currency =/= usd) and (Target_Currency == usd) ->
