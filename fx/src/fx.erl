@@ -31,8 +31,17 @@ init(Currencies) ->
 
 
 -spec bid(pair(), Volume :: number(), exchange_rate(), client()) -> {ok,id()} | {error, unknown_pair | undefined | range}.
-bid(Pair, Volumn, Exchange_Rate, Client) ->
-    ok.
+bid(Pair, Volume, Bid_Rate, Client) ->
+    Actual_Rate = currency:get(Pair),
+    case Actual_Rate of
+        {error, Reason} ->
+            {error, Reason};
+        {ok, Rate} ->
+            case (abs(Bid_Rate - Rate) / Rate) < 0.05 of
+                false -> {error, range};
+                true -> {ok, id}
+            end
+    end.
 
 
 

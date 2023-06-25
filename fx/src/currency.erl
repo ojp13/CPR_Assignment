@@ -34,6 +34,7 @@ start_link(Currencies) ->
 init(Currencies) ->
     TabId = currency_db:new(),
     generate_pair_rates(Currencies, TabId),
+    io:format("Starting server with currencies ~p ~n", [Currencies]),
     currency_server(TabId).
 
 generate_pair_rates([H|T], TabId) when H =/= usd ->
