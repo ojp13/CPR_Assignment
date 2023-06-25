@@ -120,7 +120,7 @@ set({Source_Currency, Target_Currency}, Rate) ->
 set(standard, {Source_Currency, Target_Currency}, _) when (Source_Currency =/= usd) and (Target_Currency =/= usd) ->
     {error, not_usd};
 set(standard, {Source_Currency, Target_Currency}, Rate) when (Source_Currency =/= usd) and (Target_Currency == usd) ->
-    set(standard, {Target_Currency, Source_Currency}, 1 / Rate);
+    set(standard, {Target_Currency, Source_Currency}, case Rate of undefined -> undefined; Value -> 1/ Value end);
 set(standard, {Source_Currency, Target_Currency}, Rate) ->
     % Check if the rate exists
     case get({Source_Currency, Target_Currency}) of
