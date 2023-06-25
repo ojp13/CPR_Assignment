@@ -39,16 +39,33 @@ bid(Pair, Volume, Bid_Rate, Client) ->
         {ok, Rate} ->
             case (abs(Bid_Rate - Rate) / Rate) < 0.05 of
                 false -> {error, range};
-                true -> {ok, id}
+                true -> 
+                    fx ! {bid, Pair, Volume, Bid_Rate, Client, self()},
+                    receive
+                        Response ->
+                            io:format("Response: ~p ~n", [Response]),
+                            ok
+                    end
             end
     end.
+
+-spec notification(client(), Notification :: {ask | get, id(), Volume :: integer(), Amount :: float()}) -> ok.
+notification(Client, Notification) -> 
+    ok.
 
 
 
 fx_server(TabId) ->
     receive
-        {bid, Pair, Volume} ->
-            ok
+        {bid, Pair, Volume, Bid_Rate, Client, Pid} ->
+            Transaction_Id = 1,
+            Response = fx_db:write(Transaction_Id, Pair, Volume, Bid_Rate, Client, TabId),
+            Pid ! Response,
+            fx_server(TabId);
+        {read_all, Pid} ->
+            Response = fx_db:read_all(TabId),
+            Pid ! Response,
+            fx_server(TabId)
     end.
 
 
