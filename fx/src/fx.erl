@@ -25,10 +25,10 @@ start_link(Currencies) ->
 
 init(Currencies) ->
     currency:start_link(Currencies),
-    TabId = fx_db:new(),
-    Matching_Server = spawn(?MODULE, matching_server, [TabId]),
+    fx_db:new(),
+    Matching_Server = spawn(?MODULE, matching_server, []),
     register(matching_server, Matching_Server),
-    fx_server(TabId, 1).
+    fx_server(1).
 
 
 -spec bid(pair(), Volume :: number(), exchange_rate(), client()) -> {ok,id()} | {error, unknown_pair | undefined | range}.
@@ -87,32 +87,32 @@ read_all_transactions(Client) ->
 notification(Client, Notification) -> 
     ok.
 
-fx_server(TabId, Transcation_Id_Counter) ->
+fx_server(Transcation_Id_Counter) ->
     receive
         {bid, Pair, Volume, Bid_Rate, Client, Pid} ->
             Transcation_Id_Counter,
-            fx_db:write(Transcation_Id_Counter, bid, Pair, Volume, Bid_Rate, Client, TabId),
+            fx_db:write(Transcation_Id_Counter, bid, Pair, Volume, Bid_Rate, Client),
             Pid ! {ok, Transcation_Id_Counter},
-            fx_server(TabId, Transcation_Id_Counter + 1);
+            fx_server(Transcation_Id_Counter + 1);
         {ask, Pair, Volume, Ask_Rate, Client, Pid} ->
             Transcation_Id_Counter,
-            fx_db:write(Transcation_Id_Counter, ask, Pair, Volume, Ask_Rate, Client, TabId),
+            fx_db:write(Transcation_Id_Counter, ask, Pair, Volume, Ask_Rate, Client),
             Pid ! {ok, Transcation_Id_Counter},
-            fx_server(TabId, Transcation_Id_Counter + 1);
+            fx_server(Transcation_Id_Counter + 1);
         {read_all, Pid} ->
-            All_Transactions = fx_db:read_all(TabId),
+            All_Transactions = fx_db:read_all(),
             io:format("All Transactions Found: ~p ~n", [All_Transactions]),
             Pid ! {ok, All_Transactions},
-            fx_server(TabId, Transcation_Id_Counter)
+            fx_server(Transcation_Id_Counter)
     end.
 
-matching_server(TabId) ->
+matching_server() ->
     io:format("Starting Matching Server ~n"),
     receive
         {match_bids_to_asks, Transaction_Id} ->
-            Transaction = fx_db:read_by_id(TabId, Transaction_Id),
+            Transaction = fx_db:read_by_id(Transaction_Id),
             io:format("Transaction Found: ~p ~n", [Transaction]),
-            matching_server(TabId)
+            matching_server()
     end.
 
 
