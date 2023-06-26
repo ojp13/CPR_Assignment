@@ -4,10 +4,12 @@ $ chmod u+x currency_test
 main([String]) ->
     [Arg1 | _] = [String],
     io:format("First Argument: ~p ~n", [Arg1]),
+    compile:file(currency),
+    compile:file(currency_db),
+    compile:file(fx),
+    compile:file(fx_db),
     case Arg1 of
         "currency" -> 
-            compile:file(currency),
-            compile:file(currency_db),
             currency:start_link([gbp, eur, cad, chf]),
             currency:add(gld),
             currency:add(gld),
@@ -28,40 +30,69 @@ main([String]) ->
             Rate2 = currency:get({gld, sgp}),
             io:format("Rate 2: ~p ~n", [Rate2]),
             currency:start_test_server();
-        "fx" -> 
-            compile:file(currency),
-            compile:file(currency_db),
-            compile:file(fx),
-            compile:file(fx_db),
+        "fx_bid_case_1" -> 
             fx:start_link([gbp, eur, cad, chf]),
             timer:sleep(200),
-            currency:set({gbp, usd}, 2),
+            currency:set({eur, usd}, 0.91),
             timer:sleep(200),
-            fx:ask({usd, gbp}, 200, 2.05, self()),
+            fx:ask({eur, usd}, 1000, 1.1, self()),
             receive _ -> ok end,
-            fx:ask({usd, gbp}, 200, 2.04, self()),
-            receive _ -> ok end,
-            fx:ask({usd, gbp}, 200, 2.03, self()),
-            receive _ -> ok end,
-            fx:ask({usd, gbp}, 200, 1.99, self()),
-            receive _ -> ok end,
-            fx:ask({usd, gbp}, 200, 1.98, self()),
-            receive
-                ResponseAsk -> 
-                    io:format("Response Ask: ~p ~n", [ResponseAsk])
-            end,
-            fx:bid({gbp, usd}, 100, 0.5, self()),
+            fx:bid({usd, eur}, 500*0.91, 0.91, self()),
             receive
                 Response1 -> 
                     io:format("Response 1: ~p ~n", [Response1])
             end,
             fx:read_all_transactions(self()),
-            timer:sleep(2000)
+            timer:sleep(2000),
+            fx:read_all_transactions(self()),
+            wait_for_notifications();
+        "fx_bid_case_3" -> 
+            fx:start_link([gbp, eur, cad, chf]),
+            timer:sleep(200),
+            currency:set({eur, usd}, 1),
+            timer:sleep(200),
+            fx:ask({eur, usd}, 100, 1, self()),
+            receive {ok, _} -> ok end,
+            fx:bid({usd, eur}, 50, 1, self()),
+            receive {ok, _} -> ok end,
+            fx:read_all_transactions(self()),
+            fx:bid({usd, eur}, 50, 1, self()),
+            receive {ok, _} -> ok end,
+            fx:read_all_transactions(self()),
+            timer:sleep(2000),
+            fx:read_all_transactions(self()),
+            wait_for_notifications();
+        "fx_ask_case_3" -> 
+            fx:start_link([gbp, eur, cad, chf]),
+            timer:sleep(200),
+            currency:set({eur, usd}, 1),
+            timer:sleep(200),
+            fx:bid({eur, usd}, 100, 1, self()),
+            receive {ok, _} -> ok end,
+            fx:ask({usd, eur}, 50, 1, self()),
+            receive {ok, _} -> ok end,
+            fx:read_all_transactions(self()),
+            fx:ask({usd, eur}, 50, 1, self()),
+            receive {ok, _} -> ok end,
+            fx:read_all_transactions(self()),
+            timer:sleep(2000),
+            fx:read_all_transactions(self()),
+            wait_for_notifications()
     end;
 main(_) ->
     usage().
 
 usage() ->
     io:format("usage: testing currency functionality").
+
+wait_for_notifications() ->
+    receive 
+        {ask, Transaction_id, Volume, Amount} ->
+            io:format("Ask Notification: Transaction: ~p, Volume: ~p, Amount: ~p ~n", [Transaction_id, Volume, Amount]),
+            wait_for_notifications();
+        {bid, Transaction_id, Volume, Amount} ->
+            io:format("Bid Notification: Transaction: ~p, Volume: ~p, Amount: ~p ~n", [Transaction_id, Volume, Amount]),
+            wait_for_notifications()
+    end.
 
 

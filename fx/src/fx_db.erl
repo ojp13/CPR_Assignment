@@ -1,6 +1,6 @@
 -module(fx_db).
 
--export([new/0, write/6, read_all/0, read_by_id/1, init/0, find_asks/3]).
+-export([new/0, write/6, read_all/0, read_by_id/1, init/0, find_asks/3, find_bids/3, update_volume/2, delete_transaction/1, wait/1, signal/1]).
 
 -include("pair_rate.hrl").
 
@@ -12,7 +12,7 @@ new() ->
 init() ->
     % Use an ordered set so that results are always returned in first-last insertion order
     Fx_Tab_Id = ets:new(?MODULE, [ordered_set, named_table, {keypos, #transaction.transaction_id}]),
-    db_server(Fx_Tab_Id).
+    free(Fx_Tab_Id).
 
 write(Transaction_Id, Type, {Source_Currency, Target_Currency}, Volume, Rate, Client) -> 
     transaction_server ! {write, Transaction_Id, Type, {Source_Currency, Target_Currency}, Volume, Rate, Client, self()},
@@ -37,24 +37,66 @@ find_asks(Transaction_Id, Ask_Pair, Ask_Rate) ->
     receive
         {matches, Transaction_Id, Response} -> Response
     end.
-    
 
-db_server(TabId) ->
+find_bids(Transaction_Id, Bid_Pair, Bid_Rate) -> 
+    transaction_server ! {bids, Transaction_Id, Bid_Pair, Bid_Rate, self()},
+    receive
+        {matches, Transaction_Id, Response} -> Response
+    end.
+    
+update_volume(Transaction_Id, New_Volume) -> 
+    transaction_server ! {update_volume, Transaction_Id, New_Volume, self()},
+    receive
+        Response -> Response
+    end.
+
+delete_transaction(Transaction_Id) -> 
+    transaction_server ! {delete, Transaction_Id, self()},
+    receive
+        Response -> Response
+    end.
+
+
+wait(RequestingPid) ->
+    transaction_server ! {wait, RequestingPid}.
+
+signal(RequestingPid) ->
+    transaction_server ! {signal, RequestingPid}.
+
+free(TabId) ->
+    receive
+        {wait, RequestingPid} ->
+            catch link(RequestingPid),
+            RequestingPid ! lock_achieved,
+            busy(RequestingPid, TabId)
+    end.
+
+busy(Pid, TabId) ->
     receive
         {write, Transaction_Id, Type, {Source_Currency, Target_Currency}, Volume, Rate, Client, Pid} -> 
             ets:insert(TabId, #transaction{transaction_id = Transaction_Id, type=Type, pair=#pair{source_currency=Source_Currency, target_currency=Target_Currency}, volume=Volume, rate=Rate, client_id=Client}),
             Pid ! ok,
-            db_server(TabId);
+            busy(Pid,TabId);
         {read_all, Pid} -> 
             Transactions = ets:select(TabId, [{{'_', '$1', '$2', {'_', '$3', '$4'}, '$5', '$6', '$7'}, [], [['$1', '$2', '$3', '$4', '$5', '$6', '$7']]}]),
             Processed_Transactions = form_transactions_from_select_result(Transactions),
             Pid ! Processed_Transactions,
-            db_server(TabId);
+            busy(Pid,TabId);
         {read_by_id, Transaction_Id, Pid} -> 
             Transaction = ets:select(TabId, [{{'_', '$1', '$2', {'_', '$3', '$4'}, '$5', '$6', '$7'}, [{'==', '$1', Transaction_Id}], [['$1', '$2', '$3', '$4', '$5', '$6', '$7']]}]),
             [Processed_Transaction | _] = form_transactions_from_select_result(Transaction),
             Pid ! Processed_Transaction,
-            db_server(TabId);
+            busy(Pid,TabId);
+        {update_volume, Transaction_Id, New_Volume, Pid} ->
+            ets:update_element(TabId, Transaction_Id, {#transaction.volume, New_Volume}),
+            Transaction = ets:select(TabId, [{{'_', '$1', '$2', {'_', '$3', '$4'}, '$5', '$6', '$7'}, [{'==', '$1', Transaction_Id}], [['$1', '$2', '$3', '$4', '$5', '$6', '$7']]}]),
+            [New_Bid | _] = form_transactions_from_select_result(Transaction),
+            Pid ! New_Bid,
+            busy(Pid,TabId);
+        {delete, Transaction_Id, Pid} ->
+            Transaction = ets:select_delete(TabId, [{{'_', '$1', '$2', {'_', '$3', '$4'}, '$5', '$6', '$7'}, [{'==', '$1', Transaction_Id}], [true]}]),
+            Pid ! Transaction,
+            busy(Pid,TabId);
         {asks, Transaction_Id, Ask_Pair, Ask_Rate, Pid} ->
             % We look for asks where the rate is greater than or equal to the calculated ask rate
             Asks = ets:select(TabId, [{{'_', '$1', '$2', {'_', '$3', '$4'}, '$5', '$6', '$7'}, 
@@ -62,9 +104,23 @@ db_server(TabId) ->
             [['$1', '$2', '$3', '$4', '$5', '$6', '$7']]}]),
             Processed_Asks = form_transactions_from_select_result(Asks),
             Pid ! {matches, Transaction_Id, Processed_Asks},
-            db_server(TabId)
+            busy(Pid,TabId);
+        {bids, Transaction_Id, Bid_Pair, Bid_Rate, Pid} ->
+            % We look for asks where the rate is greater than or equal to the calculated ask rate
+            Bids = ets:select(TabId, [{{'_', '$1', '$2', {'_', '$3', '$4'}, '$5', '$6', '$7'}, 
+            [{'and',{'==', '$2', 'bid'},{'==', '$3', Bid_Pair#pair.source_currency},{'==', '$4', Bid_Pair#pair.target_currency}, {'>=', '$6', Bid_Rate}}], 
+            [['$1', '$2', '$3', '$4', '$5', '$6', '$7']]}]),
+            Processed_Bids = form_transactions_from_select_result(Bids),
+            Pid ! {matches, Transaction_Id, Processed_Bids},
+            busy(Pid,TabId);
+        {signal, Pid} ->
+            unlink(Pid),
+            io:format("Unlocking ~n"),
+            Pid ! lock_removed,
+            free(TabId);
+        {'EXIT', Pid, _} ->
+            free(TabId)
     end.
-
 
 form_transactions_from_select_result([[Transaction_Id, Type, Source_Currency, Target_Currency, Volume, Rate, Client]|T]) ->
     Transaction = #transaction{transaction_id = Transaction_Id, type=Type, pair=#pair{source_currency=Source_Currency, target_currency=Target_Currency}, volume=Volume, rate=Rate, client_id=Client},
