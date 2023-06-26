@@ -40,12 +40,11 @@ bid(Pair, Volume, Bid_Rate, Client) ->
         {ok, Rate} ->
             io:format("Found rate: ~p ~n", [Rate]),
             % It has to be 1 / Bid Rate as rates are specified as their inverse
-            % E.g. {eur, usd} rate of 4 gives 4 usd per eur
-            % A bid of {{eur, usd}, volume = 1, rate = 4} means I want to buy at a rate of 4 eur per usd
             case (abs((1/Bid_Rate) - Rate) / Rate) < 0.05 of
                 false -> Client ! {error, range};
                 true -> 
                     % We've performed all necessary checks, now we can add the bid
+                    % E.g. bid pair={usd, eur} volume=1000 rate=4 | Buying X eur with 1000 usd at 4 usd per eur. X = 250
                     fx ! {bid, Pair, Volume, Bid_Rate, Client, self()},
                     receive
                         {ok, Transaction_Id} ->
@@ -67,6 +66,8 @@ ask(Pair, Volume, Ask_Rate, Client) ->
                 false -> Client ! {error, range};
                 true -> 
                     % We've performed all necessary checks, now we can add the bid
+                    % It has to be 1 / Ask Rate as rates are specified as their inverse
+                    % E.g. ask pair={eur, usd} volume=250 rate=0.25 | Selling 250 eur for usd at 0.25 eur per usd. At least 1000 USD
                     fx ! {ask, Pair, Volume, Ask_Rate, Client, self()},
                     receive
                         {ok, Transaction_Id} ->
@@ -101,8 +102,9 @@ fx_server(Transcation_Id_Counter) ->
             fx_server(Transcation_Id_Counter + 1);
         {read_all, Pid} ->
             All_Transactions = fx_db:read_all(),
-            io:format("All Transactions Found: ~p ~n", [All_Transactions]),
-            Pid ! {ok, All_Transactions},
+            Processed_Transactions = form_transaction_from_db_result(All_Transactions),
+            io:format("All Transactions Found: ~p ~n", [Processed_Transactions]),
+            Pid ! {ok, Processed_Transactions},
             fx_server(Transcation_Id_Counter)
     end.
 
@@ -111,10 +113,17 @@ matching_server() ->
     receive
         {match_bids_to_asks, Transaction_Id} ->
             Transaction = fx_db:read_by_id(Transaction_Id),
-            io:format("Transaction Found: ~p ~n", [Transaction]),
+            Processed_Transaction = form_transaction_from_db_result(Transaction),
+            io:format("Transaction Found: ~p ~n", [Processed_Transaction]),
             matching_server()
     end.
 
+form_transaction_from_db_result([[Transaction_Id, Type, Source_Currency, Target_Currency, Volume, Rate, Client]|T]) ->
+    Transaction = #transaction{transaction_id = Transaction_Id, type=Type, pair=#pair{source_currency=Source_Currency, target_currency=Target_Currency}, volume=Volume, rate=Rate, client_id=Client},
+    [Transaction | form_transaction_from_db_result(T)];
+form_transaction_from_db_result([]) ->
+    [].
+    
 
 % free(TabId, Transcation_Id_Counter) ->
 %     receive

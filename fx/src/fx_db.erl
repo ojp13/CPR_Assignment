@@ -39,19 +39,12 @@ db_server(TabId) ->
             db_server(TabId);
         {read_all, Pid} -> 
             Transactions = ets:select(TabId, [{{'_', '$1', '$2', {'_', '$3', '$4'}, '$5', '$6', '$7'}, [], [['$1', '$2', '$3', '$4', '$5', '$6', '$7']]}]),
-            Processed_Transactions = form_transaction_from_select_result(Transactions),
-            Pid ! Processed_Transactions,
+            Pid ! Transactions,
             db_server(TabId);
         {read_by_id, Transaction_Id, Pid} -> 
-            Transactions = ets:select(TabId, [{{'_', '$1', '$2', {'_', '$3', '$4'}, '$5', '$6', '$7'}, [{'==', '$1', Transaction_Id}], [['$1', '$2', '$3', '$4', '$5', '$6', '$7']]}]),
-            Processed_Transactions = form_transaction_from_select_result(Transactions),
-            Pid ! Processed_Transactions,
+            Transaction = ets:select(TabId, [{{'_', '$1', '$2', {'_', '$3', '$4'}, '$5', '$6', '$7'}, [{'==', '$1', Transaction_Id}], [['$1', '$2', '$3', '$4', '$5', '$6', '$7']]}]),
+            Pid ! Transaction,
             db_server(TabId)
     end.
 
-form_transaction_from_select_result([[Transaction_Id, Type, Source_Currency, Target_Currency, Volume, Rate, Client]|T]) ->
-    Transaction = #transaction{transaction_id = Transaction_Id, type=Type, pair=#pair{source_currency=Source_Currency, target_currency=Target_Currency}, volume=Volume, rate=Rate, client_id=Client},
-    [Transaction | form_transaction_from_select_result(T)];
-form_transaction_from_select_result([]) ->
-    [].
 
