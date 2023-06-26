@@ -102,9 +102,8 @@ fx_server(Transcation_Id_Counter) ->
             fx_server(Transcation_Id_Counter + 1);
         {read_all, Pid} ->
             All_Transactions = fx_db:read_all(),
-            Processed_Transactions = form_transaction_from_db_result(All_Transactions),
-            io:format("All Transactions Found: ~p ~n", [Processed_Transactions]),
-            Pid ! {ok, Processed_Transactions},
+            io:format("All Transactions Found: ~p ~n", [All_Transactions]),
+            Pid ! {ok, All_Transactions},
             fx_server(Transcation_Id_Counter)
     end.
 
@@ -113,16 +112,13 @@ matching_server() ->
     receive
         {match_bids_to_asks, Transaction_Id} ->
             Transaction = fx_db:read_by_id(Transaction_Id),
-            Processed_Transaction = form_transaction_from_db_result(Transaction),
-            io:format("Transaction Found: ~p ~n", [Processed_Transaction]),
+            io:format("Transaction Found: ~p ~n", [Transaction]),
+            Pair = Transaction#transaction.pair,
+            io:format("Pair found: ~p ~n", [Pair]),
             matching_server()
     end.
 
-form_transaction_from_db_result([[Transaction_Id, Type, Source_Currency, Target_Currency, Volume, Rate, Client]|T]) ->
-    Transaction = #transaction{transaction_id = Transaction_Id, type=Type, pair=#pair{source_currency=Source_Currency, target_currency=Target_Currency}, volume=Volume, rate=Rate, client_id=Client},
-    [Transaction | form_transaction_from_db_result(T)];
-form_transaction_from_db_result([]) ->
-    [].
+
     
 
 % free(TabId, Transcation_Id_Counter) ->
