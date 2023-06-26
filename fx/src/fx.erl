@@ -44,7 +44,7 @@ bid(Pair, Volume, Bid_Rate, Client) ->
                 false -> Client ! {error, range};
                 true -> 
                     % We've performed all necessary checks, now we can add the bid
-                    % E.g. bid pair={usd, eur} volume=1000 rate=4 | Buying X eur with 1000 usd at 4 usd per eur. X = 250
+                    % E.g. bid pair={usd, eur} volume=1000 rate=4 | Buying X eur with 1000 usd at 4 usd per eur. X >= 250
                     fx ! {bid, Pair, Volume, Bid_Rate, Client, self()},
                     receive
                         {ok, Transaction_Id} ->
@@ -71,8 +71,7 @@ ask(Pair, Volume, Ask_Rate, Client) ->
                     fx ! {ask, Pair, Volume, Ask_Rate, Client, self()},
                     receive
                         {ok, Transaction_Id} ->
-                            Client ! {ok, Transaction_Id},
-                            matching_server ! {match_bids_to_asks, Transaction_Id}
+                            Client ! {ok, Transaction_Id}
                     end
             end
     end.
@@ -108,16 +107,42 @@ fx_server(Transcation_Id_Counter) ->
     end.
 
 matching_server() ->
-    io:format("Starting Matching Server ~n"),
     receive
         {match_bids_to_asks, Transaction_Id} ->
+            io:format("Attempting to match bid with Transaction Id: ~p ~n", [Transaction_Id]),
             Transaction = fx_db:read_by_id(Transaction_Id),
-            io:format("Transaction Found: ~p ~n", [Transaction]),
-            Pair = Transaction#transaction.pair,
-            io:format("Pair found: ~p ~n", [Pair]),
-            matching_server()
+            case Transaction of 
+                [] ->
+                    matching_server();
+                Result ->
+                    io:format("Transaction Found: ~p ~n", [Result]),
+                    Bid_Pair = Result#transaction.pair,
+                    Bid_Rate = Result#transaction.rate,
+                    Matching_Asks = find_matching_asks(Transaction_Id, Bid_Pair, Bid_Rate),
+                    io:format("Matching Transactions Found: ~n ~p ~n", [Matching_Asks]),
+                    matching_server()
+            end
     end.
 
+find_matching_asks(Transaction_Id, Bid_Pair, Bid_Rate) ->
+    Ask_Pair = #pair{source_currency=Bid_Pair#pair.target_currency, target_currency=Bid_Pair#pair.source_currency},
+    Ask_Rate = 1 / Bid_Rate,
+    Matching_Asks = fx_db:find_asks(Transaction_Id, Ask_Pair, Ask_Rate)
+    case Matching_Asks of 
+        [] -> {ok, no_matches_found};
+        Matches ->
+            % Now we need to work out how much volume to consume from matching asks
+            % E.g.
+            % bid pair={usd, gbp} volume=200 rate=2 means I am buying gbp with 200 usd at a rate of 2 usd per gbp, meaning I get at least 100 gbp
+            % ask pair={gbp, usd} volume=100 rate=0.5 means I am selling gbp for usd as a rate of 0.5 usd per gbp, meaning I get at least 200 usd
+            % Bid_Volume = 200, Matching_Ask_Volume = Ask#transaction.volume / Ask#transaction.rate
+            % The above transactions match perfectly
+            % Next example: 
+            % bid pair={usd, gbp} volume=200 rate=2 means I am buying gbp with 200 usd at a rate of 2 usd per gbp, meaning I get at least 100 gbp
+            % ask pair={gbp, usd} volume=100 rate=0.52 means I am selling gbp for usd as a rate of 0.52 usd per gbp, meaning I get at least 192 usd
+            % At the Ask Rate of 0.52, I would spend (100 * 1/0.52)=192.3 usd to buy 100 gbp. Leaving me with (200-192.3) = 7.7 usd to bid
+            %   At this point, the first ask is fully delivered and should be closed. The bid will stay open and I should move to the second ask
+    .
 
     
 

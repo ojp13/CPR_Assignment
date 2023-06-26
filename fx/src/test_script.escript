@@ -37,32 +37,26 @@ main([String]) ->
             timer:sleep(200),
             currency:set({gbp, usd}, 2),
             timer:sleep(200),
+            fx:ask({usd, gbp}, 200, 2.05, self()),
+            receive _ -> ok end,
+            fx:ask({usd, gbp}, 200, 2.04, self()),
+            receive _ -> ok end,
+            fx:ask({usd, gbp}, 200, 2.03, self()),
+            receive _ -> ok end,
+            fx:ask({usd, gbp}, 200, 1.99, self()),
+            receive _ -> ok end,
+            fx:ask({usd, gbp}, 200, 1.98, self()),
+            receive
+                ResponseAsk -> 
+                    io:format("Response Ask: ~p ~n", [ResponseAsk])
+            end,
             fx:bid({gbp, usd}, 100, 0.5, self()),
             receive
                 Response1 -> 
                     io:format("Response 1: ~p ~n", [Response1])
             end,
-            fx:bid({gbp, usd}, 100, 0.5, self()),
-            receive
-                Response2 -> 
-                    io:format("Response 2: ~p ~n", [Response2])
-            end,
-            fx:bid({gbp, usd}, 100, 0.5, self()),
-            receive
-                Response3 -> 
-                    io:format("Response 3: ~p ~n", [Response3])
-            end,
-            fx:ask({gbp, usd}, 100, 0.5, self()),
-            receive
-                Response4 -> 
-                    io:format("Response 4: ~p ~n", [Response4])
-            end,
-            fx:ask({usd, gbp}, 100, 0.2, self()),
-            receive
-                Response5 -> 
-                    io:format("Response 5: ~p ~n", [Response5])
-            end,
-            fx:read_all_transactions(self())
+            fx:read_all_transactions(self()),
+            timer:sleep(2000)
     end;
 main(_) ->
     usage().
