@@ -177,6 +177,11 @@ currency_server(TabId) ->
             Response = currency_db:find_paired_and_defined_currencies(Currency, TabId),
             Pid ! Response,
             currency_server(TabId);
+        {read_all_currency_pairs, Pid} -> 
+            % Returns a list of all the defined currency pairs
+            Response = currency_db:find_all_pairs(TabId),
+            Pid ! Response,
+            currency_server(TabId);
         {remove_exotic, Exotic_Currency, Pid} ->
             Response = currency_db:delete(Exotic_Currency, TabId),
             Pid ! Response,
@@ -184,17 +189,17 @@ currency_server(TabId) ->
     end.
 
 
-start_test_server() ->
+start_rate_setting_server() ->
         TestServer = spawn(?MODULE, test_data_process, []),
         register(test_server, TestServer),
-        {ok, currency_converter}.
-test_data_process() ->
+        {ok, test_server}.
+rate_setting_process() ->
         Major_Currencies = get_currencies_paired_with_this_currency(usd),
         io:format("Found Major Pairs: ~p ~n", [Major_Currencies]),
         Result = generate_major_pair_tests(Major_Currencies),
         io:format("Result of testing: ~p ~n", [Result]),
         timer:sleep(5000),
-        test_data_process().
+        rate_setting_process().
     
 generate_major_pair_tests([H|T]) -> 
         case generate_test(H) of
@@ -222,6 +227,13 @@ generate_test(Currency) ->
         false -> 
             io:format("Error in setting rates for ~p ~n", [Currency]),
             {error, failed}
+    end.
+
+get_all_pairs() -> 
+    currency_converter ! {read_all_currency_pairs, self()},
+    receive
+        Response ->
+            Response
     end.
 
 -spec add(Currency :: exotic_currency()) -> ok.

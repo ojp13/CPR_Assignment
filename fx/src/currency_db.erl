@@ -1,6 +1,6 @@
 -module(currency_db).
 
--export([new/0, write/4, read/3, find_matches/2, delete/2, find_paired_currencies/2, find_paired_and_defined_currencies/2]).
+-export([new/0, write/4, read/3, find_matches/2, delete/2, find_paired_currencies/2, find_paired_and_defined_currencies/2, find_all_pairs/1]).
 
 -include("pair_rate.hrl").
 
@@ -41,6 +41,11 @@ find_paired_and_defined_currencies(Currency, TabId) ->
     Where_Target_Currency = ets:select(TabId, [{{'_',{'_','$1','$2'},'$3'},[{'and',{'==','$2',Currency},{'=/=','$3',undefined}}],[['$1']]}]),
     io:format("Found Targets: ~p ~n", [Where_Target_Currency]),
     lists:flatten([Where_Source_Currency | Where_Target_Currency]).
+
+find_all_pairs(TabId) ->
+    % Pairs = ets:select(TabId, [{{'_',{'_','$1','$2'},'$3'},[],[[{{{'$1','$2'}, '$3'}}]]}]),
+    Pairs = ets:match(TabId, '$1'),
+    lists:flatten(Pairs).
 
 
 delete(Exotic_Currency, TabId) ->

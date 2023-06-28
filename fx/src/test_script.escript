@@ -9,7 +9,14 @@ main([String]) ->
     compile:file(fx),
     compile:file(fx_db),
     case Arg1 of
-        "currency" -> 
+        "currency_1" ->
+            currency:start_link([gbp, eur, cad, chf]),
+            currency:add(gld),
+            currency:add(bnm),
+            currency:set({gld, bnm}, 4),
+            C1 = currency:get_all_pairs(),
+            io:format("All Currencies: ~p ~n", [C1]);
+        "currency_test_server" -> 
             currency:start_link([gbp, eur, cad, chf]),
             currency:add(gld),
             currency:add(gld),
