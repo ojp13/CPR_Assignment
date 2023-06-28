@@ -131,6 +131,7 @@ set(standard, {Source_Currency, Target_Currency}, Rate) ->
             currency_converter ! {set, Source_Currency, Target_Currency, Rate, self()},
             receive
                 _ -> 
+                    io:format("Rate for ~p, ~p set to ~p ~n", [Source_Currency, Target_Currency, Rate]),
                     ok
             end
     end;
@@ -141,6 +142,7 @@ set(exotic, {Source_Currency, Target_Currency}, Rate) ->
             currency_converter ! {set, Source_Currency, Target_Currency, Rate, self()},
                 receive
                     _ -> 
+                        io:format("Rate for ~p, ~p set to ~p ~n", [Source_Currency, Target_Currency, Rate]),
                         ok
                 end;
         Error ->
@@ -188,19 +190,18 @@ currency_server(TabId) ->
             currency_server(TabId)
     end.
 
-
-start_rate_setting_server() ->
+start_test_server() ->
         TestServer = spawn(?MODULE, test_data_process, []),
         register(test_server, TestServer),
-        {ok, test_server}.
-rate_setting_process() ->
+        {ok, currency_converter}.
+test_data_process() ->
         Major_Currencies = get_currencies_paired_with_this_currency(usd),
         io:format("Found Major Pairs: ~p ~n", [Major_Currencies]),
         Result = generate_major_pair_tests(Major_Currencies),
         io:format("Result of testing: ~p ~n", [Result]),
         timer:sleep(5000),
-        rate_setting_process().
-    
+        test_data_process().
+
 generate_major_pair_tests([H|T]) -> 
         case generate_test(H) of
             {ok, _} -> 
@@ -229,12 +230,38 @@ generate_test(Currency) ->
             {error, failed}
     end.
 
-get_all_pairs() -> 
-    currency_converter ! {read_all_currency_pairs, self()},
-    receive
-        Response ->
-            Response
-    end.
+
+start_rate_setting_server() ->
+        RateSettingServer = spawn(?MODULE, rate_setting_process, []),
+        register(rate_setting_server, RateSettingServer),
+        {ok, rate_setting_server}.
+
+rate_setting_process() ->
+        All_Pairs = get_all_pairs(),
+        update_rates(All_Pairs),
+        timer:sleep(5000),
+        rate_setting_process().
+
+update_rates([Pair_Rate|T]) ->
+    Current_Rate = Pair_Rate#pair_rate.rate,
+    Pair = {Pair_Rate#pair_rate.pair#pair.source_currency, Pair_Rate#pair_rate.pair#pair.target_currency},
+    case Current_Rate of
+        undefined ->
+            % Set it to a random number between 1 and 2
+            set(Pair, 2*random:uniform());
+        Defined_Rate ->
+            % Change it randomly by up to 5%
+            % Take a random float between 0 and 1
+            % Multiply it by 0.1 to get a random float between 0 and 0.1
+            % Subtract 0.05 to get a random float between -0.05 and 0.05
+            New_Rate = Defined_Rate * ((random:uniform()*0.1 - 0.05) + 1),
+            set(Pair, New_Rate)
+    end,
+    update_rates(T);
+update_rates([]) ->
+    ok.
+
+    
 
 -spec add(Currency :: exotic_currency()) -> ok.
 add(Exotic_Currency) ->
@@ -276,6 +303,13 @@ get_currencies_paired_with_this_currency(Currency) ->
 
 get_paired_and_defined_currencies(Currency) -> 
     currency_converter ! {read_paired_and_defined_currencies, Currency, self()},
+    receive
+        Response ->
+            Response
+    end.
+
+get_all_pairs() -> 
+    currency_converter ! {read_all_currency_pairs, self()},
     receive
         Response ->
             Response

@@ -16,6 +16,15 @@ main([String]) ->
             currency:set({gld, bnm}, 4),
             C1 = currency:get_all_pairs(),
             io:format("All Currencies: ~p ~n", [C1]);
+        "currency_rate_setting" ->
+            currency:start_link([gbp, eur, cad, chf]),
+            timer:sleep(200),
+            currency:start_rate_setting_server(),
+            io:format("My Pid is: ~p ~n", [self()]),
+            receive
+                {endme, ok} ->
+                    ok
+            end;
         "currency_test_server" -> 
             currency:start_link([gbp, eur, cad, chf]),
             currency:add(gld),
