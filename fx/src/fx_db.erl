@@ -29,13 +29,13 @@ read_all() ->
 read_by_id(Transaction_Id) -> 
     transaction_server ! {read_by_id, Transaction_Id, self()},
     receive
-        Response -> Response
+        {read_by_id_result, Response} -> Response
     end.
 
 read_by_pair({Source_Currency, Target_Currency}) -> 
     transaction_server ! {read_by_pair, {Source_Currency, Target_Currency}, self()},
     receive
-        Response -> Response
+        {read_by_pair_result, Response} -> Response
     end.
 
 find_asks(Transaction_Id, Ask_Pair, Ask_Rate) -> 
@@ -96,7 +96,7 @@ busy(Pid, TabId) ->
         {read_by_id, Transaction_Id, Pid} -> 
             Transaction = ets:select(TabId, [{{'_', '$1', '$2', {'_', '$3', '$4'}, '$5', '$6', '$7'}, [{'==', '$1', Transaction_Id}], [['$1', '$2', '$3', '$4', '$5', '$6', '$7']]}]),
             [Processed_Transaction | _] = form_transactions_from_select_result(Transaction),
-            Pid ! Processed_Transaction,
+            Pid ! {read_by_id_result, Processed_Transaction},
             busy(Pid,TabId);
         {read_by_pair, {Source_Currency, Target_Currency}, Pid} -> 
             Transactions = ets:select(TabId, [{{'_', '$1', '$2', {'_', '$3', '$4'}, '$5', '$6', '$7'}, 
@@ -106,7 +106,7 @@ busy(Pid, TabId) ->
             }], 
             [['$1', '$2', '$3', '$4', '$5', '$6', '$7']]}]),
             Processed_Transactions = form_transactions_from_select_result(Transactions),
-            Pid ! Processed_Transactions,
+            Pid ! {read_by_pair_result, Processed_Transactions},
             busy(Pid,TabId);
         {update_volume, Transaction_Id, New_Volume, Pid} ->
             ets:update_element(TabId, Transaction_Id, {#transaction.volume, New_Volume}),

@@ -8,6 +8,7 @@ main([String]) ->
     compile:file(currency_db),
     compile:file(fx),
     compile:file(fx_db),
+    compile:file(bot),
     case Arg1 of
         "currency_1" ->
             currency:start_link([gbp, eur, cad, chf]),
@@ -115,6 +116,12 @@ main([String]) ->
             receive {ok, _} -> ok end,
             Orders = fx:orders({eur, usd}),
             io:format("Found Orders: ~p ~n", [Orders]),
+            wait_for_notifications();
+        "bots_1" ->
+            fx:start_link([eur, usd, cad, gbp, chf, jpy, aud, nzd]),
+            timer:sleep(2000),
+            bot:start_bot([eur, usd, cad, gbp, chf, jpy, aud, nzd], 1000000, node()),
+            % bot:start_bot([eur, usd, cad, gbp, chf, jpy, aud, nzd], 1000000, 'fx@DESKTOP-LIMML5C').,
             wait_for_notifications()
     end;
 main(_) ->

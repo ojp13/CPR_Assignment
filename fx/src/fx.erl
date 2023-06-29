@@ -36,8 +36,8 @@ init(Currencies) ->
 bid(Pair, Volume, Bid_Rate, Client) ->
     Actual_Rate = currency:get(Pair),
     case Actual_Rate of
-        {error, Reason} ->
-            Client ! {error, Reason};
+        {error, _} ->
+            Client ! {error, bid_failed};
         {ok, Rate} ->
             % It has to be 1 / Bid Rate as rates are specified as their inverse
             case (abs((1/Bid_Rate) - Rate) / Rate) < 0.05 of
@@ -60,7 +60,7 @@ ask(Pair, Volume, Ask_Rate, Client) ->
     Actual_Rate = currency:get(Pair),
     case Actual_Rate of
         {error, Reason} ->
-            Client ! {error, Reason};
+            Client ! {error, ask_failed};
         {ok, Rate} ->
             io:format("Found rate: ~p ~n", [Rate]),
             case (abs((1/Ask_Rate) - Rate) / Rate) < 0.05 of
@@ -79,18 +79,18 @@ ask(Pair, Volume, Ask_Rate, Client) ->
             end
     end.
 
--spec notification(client(), Notification :: {ask | get, id(), Volume :: integer(), Amount :: float()}) -> ok.
+-spec notification(client(), Notification :: {ask | bid, id(), Volume :: integer(), Amount :: float()}) -> ok.
 notification(Client, Notification) -> 
     Client ! Notification.
 
 
 
--spec cancel(id()) -> {ok, {ask | bid, id(), pair(), Volume :: integer(), exchange_rate()}} | {error, unknown}.
+-spec cancel(id()) -> {cancel_ok, {ask | bid, id(), pair(), Volume :: integer(), exchange_rate()}} | {error, unknown}.
 cancel(Transaction_Id) ->
     fx ! {cancel_transaction, Transaction_Id, self()},
     receive
-        [] -> {error, unknown_pair};
-        Response -> {ok, Response}
+        [] -> {error, unknown};
+        {cancel_ok, Response} -> {ok, Response}
     end.
 
 % -spec orders(pair()) -> {ok, {{ask, [Volume :: integer(), exchange_rate()]}, {bid, [Volume :: integer(), exchange_rate()]}}} | {error, unknown_pair}.
@@ -143,7 +143,7 @@ fx_server(Transaction_Id_Counter) ->
             Deleted_Transaction = fx_db:delete_for_client(Transaction_Id, Pid),
             case Deleted_Transaction of
                 [] -> Pid ! {error, unknown};
-                Response -> Pid ! Response
+                Response -> Pid ! {cancel_ok, Response}
             end,
             fx_db:signal(self()),
             receive lock_removed -> ok end,
