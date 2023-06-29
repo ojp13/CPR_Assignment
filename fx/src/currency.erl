@@ -2,8 +2,8 @@
 
 -include("pair_rate.hrl").
 
--compile(export_all).
 -compile({no_auto_import,[get/1]}).
+-export([start_link/1, get/1, start_test_server/0, test_data_process/0, start_rate_setting_server/0, rate_setting_process/0, init/1, add/1, remove/1]).
 
 -type currency() :: eur|usd|cad|gbp|chf|jpy|aud|nzd.
 -type exotic_currency() :: atom().
@@ -15,14 +15,9 @@
 % -type client() :: pid() | {alias(), node()}.
 % -type alias() :: atom().
 
-% Type Guards
--spec is_usd(X :: atom()) -> boolean().
-is_usd(X) ->
-    X == usd.
-
 -spec is_currency(X :: atom()) -> boolean().
 is_currency(X) ->
-    Currency_List = [usd,eur,usd,cad,gbp,chf,jpy,aud,nzd],
+    Currency_List = [usd,eur,cad,gbp,chf,jpy,aud,nzd],
     lists:member(X, Currency_List).
 
 -spec start_link(Currencies :: [currency()]) -> {ok,currency_converter()}.
@@ -248,13 +243,13 @@ update_rates([Pair_Rate|T]) ->
     case Current_Rate of
         undefined ->
             % Set it to a random number between 1 and 2
-            set(Pair, 2*random:uniform());
+            set(Pair, 2*rand:uniform());
         Defined_Rate ->
             % Change it randomly by up to 5%
             % Take a random float between 0 and 1
             % Multiply it by 0.1 to get a random float between 0 and 0.1
             % Subtract 0.05 to get a random float between -0.05 and 0.05
-            New_Rate = Defined_Rate * ((random:uniform()*0.1 - 0.05) + 1),
+            New_Rate = Defined_Rate * ((rand:uniform()*0.1 - 0.05) + 1),
             set(Pair, New_Rate)
     end,
     update_rates(T);
