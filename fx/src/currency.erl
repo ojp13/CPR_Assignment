@@ -3,7 +3,7 @@
 -include("pair_rate.hrl").
 
 -compile({no_auto_import,[get/1]}).
--export([start_link/1, get/1, start_test_server/0, test_data_process/0, start_rate_setting_server/0, rate_setting_process/0, init/1, add/1, remove/1]).
+-export([start_link/1, get/1, start_test_server/0, test_data_process/0, start_rate_setting_server/0, rate_setting_process/0, init/1, add/1, remove/1, set/2, get_currency_pairs/1, get_paired_and_defined_currencies/1, find_path/1]).
 
 -type currency() :: eur|usd|cad|gbp|chf|jpy|aud|nzd.
 -type exotic_currency() :: atom().
