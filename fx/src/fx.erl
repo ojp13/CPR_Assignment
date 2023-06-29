@@ -26,6 +26,7 @@ start_link(Currencies) ->
 init(Currencies) ->
     currency:start_link(Currencies),
     fx_db:new(),
+    currency:start_rate_setting_server(),
     Matching_Server = spawn(?MODULE, matching_server, []),
     register(matching_server, Matching_Server),
     fx_server(1).
@@ -85,6 +86,15 @@ read_all_transactions(Client) ->
             Client ! Response
     end.
 
+-spec cancel(id()) -> {ok, {ask | get, id(), pair(), Volume :: integer(), exchange_rate()}} | {error, unknown}.
+cancel(Transaction_Id) ->
+    fx ! {cancel_transaction, Transaction_Id, self()},
+    receive
+        [] -> {error, unknown_pair};
+        Response -> {ok, Response}
+    end.
+        
+
 
 
 fx_server(Transaction_Id_Counter) ->
@@ -111,6 +121,17 @@ fx_server(Transaction_Id_Counter) ->
             All_Transactions = fx_db:read_all(),
             io:format("All Transactions Found: ~n ~p ~n", [All_Transactions]),
             Pid ! {ok, All_Transactions},
+            fx_db:signal(self()),
+            receive lock_removed -> ok end,
+            fx_server(Transaction_Id_Counter);
+        {cancel_transaction, Transaction_Id, Pid} ->
+            fx_db:wait(self()),
+            receive lock_achieved -> ok end,
+            Deleted_Transaction = fx_db:delete_for_client(Transaction_Id, Pid),
+            case Deleted_Transaction of
+                [] -> Pid ! {error, unknown};
+                Response -> Pid ! Response
+            end,
             fx_db:signal(self()),
             receive lock_removed -> ok end,
             fx_server(Transaction_Id_Counter)

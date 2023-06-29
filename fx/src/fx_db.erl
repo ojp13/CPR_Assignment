@@ -1,6 +1,6 @@
 -module(fx_db).
 
--export([new/0, write/6, read_all/0, read_by_id/1, init/0, find_asks/3, find_bids/3, update_volume/2, delete_transaction/1, wait/1, signal/1]).
+-export([new/0, write/6, read_all/0, read_by_id/1, init/0, find_asks/3, find_bids/3, update_volume/2, delete_transaction/1, wait/1, signal/1, delete_for_client/2]).
 
 -include("pair_rate.hrl").
 
@@ -56,6 +56,11 @@ delete_transaction(Transaction_Id) ->
         Response -> Response
     end.
 
+delete_for_client(Transaction_Id, Pid) ->
+    transaction_server ! {delete_for_client, Transaction_Id, Pid, self()},
+    receive
+        Response -> Response
+    end.
 
 wait(RequestingPid) ->
     transaction_server ! {wait, RequestingPid}.
@@ -113,9 +118,16 @@ busy(Pid, TabId) ->
             Processed_Bids = form_transactions_from_select_result(Bids),
             Pid ! {matches, Transaction_Id, Processed_Bids},
             busy(Pid,TabId);
+        {delete_for_client, Transaction_Id, Client_Pid, Pid} ->
+            Transaction = ets:select(TabId, [{{'_', '$1', '$2', {'_', '$3', '$4'}, '$5', '$6', '$7'}, [{'==', '$1', Transaction_Id}], [['$1', '$2', '$3', '$4', '$5', '$6', '$7']]}]),
+            [Processed_Transaction | _] = form_transactions_from_select_result(Transaction),
+            ets:select_delete(TabId, [{{'_', '$1', '$2', {'_', '$3', '$4'}, '$5', '$6', '$7'}, 
+            [{'and',{'==', '$1', Transaction_Id},{'==', '$7', Client_Pid}}], 
+            [true]}]),
+            Pid ! Processed_Transaction,
+            busy(Pid,TabId);
         {signal, Pid} ->
             unlink(Pid),
-            io:format("Unlocking ~n"),
             Pid ! lock_removed,
             free(TabId);
         {'EXIT', Pid, _} ->
