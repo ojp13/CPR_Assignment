@@ -7,10 +7,18 @@
 start_bot(Currencies, Amount, Fx_Node) -> 
     spawn_link(?MODULE, init, [Currencies, Amount, Fx_Node,  node()]),
     timer:sleep(4000),
+    management_loop_transact().
+
+management_loop_transact() ->
+    node() ! transact,
+    timer:sleep(8000),
+    management_loop_wait().
+
+management_loop_wait() ->
     node() ! cancel_all,
     timer:sleep(4000),
-    node() ! transact,
-    timer:sleep(4000).
+    management_loop_transact().
+
 
 init(Currencies, Amount, Fx_Node, Name) ->
     register(Name, self()),
@@ -52,8 +60,9 @@ waiting(Balances, Lowest_Balance, Transactions, Diversification_Factor, Risk_App
             self() ! {update_actual_balances, Target_Currency, Amount},
             waiting(Balances, Lowest_Balance, Transactions, Diversification_Factor, Risk_Appetite, Fx_Node);
         cancel_all ->
+            io:format("Cancelling all transactions ~n"),
             cancel_transactions(Transactions, Fx_Node),
-            waiting(Balances, Lowest_Balance, Transactions, Diversification_Factor, Risk_Appetite, Fx_Node);
+            loop(Balances, Lowest_Balance, Transactions, Diversification_Factor, Risk_Appetite, Fx_Node);
         transact ->
             loop(Balances, Lowest_Balance, Transactions, Diversification_Factor, Risk_Appetite, Fx_Node);
         stop ->
@@ -65,17 +74,6 @@ waiting(Balances, Lowest_Balance, Transactions, Diversification_Factor, Risk_App
 create_initial_balance([Currency | T], Amount) ->
     [{Currency, Amount, Amount} | create_initial_balance(T, Amount)];
 create_initial_balance([], _) ->
-    [].
-
-get_rates([Currency | T], Fx_Node) ->
-    Response = rpc:call(Fx_Node, currency, get, [{Currency, usd}]),
-    case Response of
-        {ok, Rate} ->
-            [{{Currency, usd}, Rate} | get_rates(T, Fx_Node)];
-        {error, _} ->
-            get_rates(T, Fx_Node)
-    end;
-get_rates([], _) ->
     [].
 
 make_bids([Currency_Balance | T], Lowest_Balance, Diversification_Factor, Risk_Appetite, Fx_Node) ->
@@ -143,7 +141,7 @@ sell_usd([Currency_Balance | T], Balance, Lowest_Balance, Diversification_Factor
                     sell_usd(T, Balance, Lowest_Balance, Diversification_Factor, Risk_Appetite, Fx_Node);
                 {ok, Rate} ->
                     Ask_Success = make_ask({usd, Currency}, Amount_To_Ask, (1/Rate) * (1-Risk_Factor), Fx_Node),
-                    io:format("Did the bid succeed: ~p ~n", [Ask_Success]),
+                    io:format("Did the ask succeed: ~p ~n", [Ask_Success]),
                     case Ask_Success of
                         {ok, ask_successful} -> 
                             self() ! {update_virtual_balances, usd, -Amount_To_Ask},
@@ -211,8 +209,8 @@ get_virtual_balance_for_currency([], _) ->
     0.
 
 find_pair_from_transactions(Transaction_Id, [Head_Transaction | T]) ->
-    {id, _, Pair, _} = Head_Transaction,
-    case id of
+    {Id, _, Pair, _} = Head_Transaction,
+    case Id of
         Transaction_Id -> Pair;
         _ -> find_pair_from_transactions(Transaction_Id, T)
     end;

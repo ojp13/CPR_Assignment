@@ -59,7 +59,7 @@ bid(Pair, Volume, Bid_Rate, Client) ->
 ask(Pair, Volume, Ask_Rate, Client) ->
     Actual_Rate = currency:get(Pair),
     case Actual_Rate of
-        {error, Reason} ->
+        {error, _} ->
             Client ! {error, ask_failed};
         {ok, Rate} ->
             io:format("Found rate: ~p ~n", [Rate]),
@@ -89,7 +89,7 @@ notification(Client, Notification) ->
 cancel(Transaction_Id) ->
     fx ! {cancel_transaction, Transaction_Id, self()},
     receive
-        [] -> {error, unknown};
+        {error, unknown} -> {error, unknown};
         {cancel_ok, Response} -> {ok, Response}
     end.
 

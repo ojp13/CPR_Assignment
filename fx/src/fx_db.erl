@@ -136,12 +136,18 @@ busy(Pid, TabId) ->
             busy(Pid,TabId);
         {delete_for_client, Transaction_Id, Client_Pid, Pid} ->
             Transaction = ets:select(TabId, [{{'_', '$1', '$2', {'_', '$3', '$4'}, '$5', '$6', '$7'}, [{'==', '$1', Transaction_Id}], [['$1', '$2', '$3', '$4', '$5', '$6', '$7']]}]),
-            [Processed_Transaction | _] = form_transactions_from_select_result(Transaction),
-            ets:select_delete(TabId, [{{'_', '$1', '$2', {'_', '$3', '$4'}, '$5', '$6', '$7'}, 
-            [{'and',{'==', '$1', Transaction_Id},{'==', '$7', Client_Pid}}], 
-            [true]}]),
-            Pid ! Processed_Transaction,
-            busy(Pid,TabId);
+            case Transaction of
+                [] -> 
+                    Pid ! [],
+                    busy(Pid,TabId);
+                _ ->
+                    [Processed_Transaction | _] = form_transactions_from_select_result(Transaction),
+                    ets:select_delete(TabId, [{{'_', '$1', '$2', {'_', '$3', '$4'}, '$5', '$6', '$7'}, 
+                    [{'and',{'==', '$1', Transaction_Id},{'==', '$7', Client_Pid}}], 
+                    [true]}]),
+                    Pid ! Processed_Transaction,
+                    busy(Pid,TabId)
+            end;
         {signal, Pid} ->
             unlink(Pid),
             Pid ! lock_removed,
