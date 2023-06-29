@@ -79,22 +79,35 @@ ask(Pair, Volume, Ask_Rate, Client) ->
             end
     end.
 
-read_all_transactions(Client) ->
-    fx ! {read_all, self()},
-    receive 
-        {ok, Response} ->
-            Client ! Response
-    end.
+-spec notification(client(), Notification :: {ask | get, id(), Volume :: integer(), Amount :: float()}) -> ok.
+notification(Client, Notification) -> 
+    Client ! Notification.
 
--spec cancel(id()) -> {ok, {ask | get, id(), pair(), Volume :: integer(), exchange_rate()}} | {error, unknown}.
+
+
+-spec cancel(id()) -> {ok, {ask | bid, id(), pair(), Volume :: integer(), exchange_rate()}} | {error, unknown}.
 cancel(Transaction_Id) ->
     fx ! {cancel_transaction, Transaction_Id, self()},
     receive
         [] -> {error, unknown_pair};
         Response -> {ok, Response}
     end.
-        
 
+% -spec orders(pair()) -> {ok, {{ask, [Volume :: integer(), exchange_rate()]}, {bid, [Volume :: integer(), exchange_rate()]}}} | {error, unknown_pair}.
+-spec orders(pair()) -> {ok, {{ask, [{Volume :: integer(), exchange_rate()}]}, {bid, [{Volume :: integer(), exchange_rate()}]}}} | {error, unknown_pair}.
+orders(Pair) ->
+    io:format("Attempting to find Orders for Pair: ~p ~n", [Pair]),
+    Rate = currency:get(Pair),
+    case Rate of
+        {error, _} -> {error, unknown_pair};
+        _ -> 
+            fx ! {read_by_pair, Pair, self()},
+            receive 
+                {ok, Paired_Transactions} ->
+                    Parsed_Responses = parse_paired_transactions_to_orders_response(Paired_Transactions),
+                    Parsed_Responses
+            end
+    end.
 
 
 fx_server(Transaction_Id_Counter) ->
@@ -134,6 +147,14 @@ fx_server(Transaction_Id_Counter) ->
             end,
             fx_db:signal(self()),
             receive lock_removed -> ok end,
+            fx_server(Transaction_Id_Counter);
+        {read_by_pair, Pair, Pid} -> 
+            fx_db:wait(self()),
+            receive lock_achieved -> ok end,
+            Paired_Transactions = fx_db:read_by_pair(Pair),
+            Pid ! {ok, Paired_Transactions},
+            fx_db:signal(self()),
+            receive lock_removed -> ok end,
             fx_server(Transaction_Id_Counter)
     end.
 
@@ -142,7 +163,7 @@ matching_server() ->
         {match_bid_to_asks, Transaction_Id} ->
             fx_db:wait(self()),
             receive lock_achieved -> ok end,
-            io:format("Attempting to match bid with Transaction Id: ~p ~n", [Transaction_Id]),
+            io:format("Attempting to match Bid with Transaction Id: ~p ~n", [Transaction_Id]),
             Transaction = fx_db:read_by_id(Transaction_Id),
             case Transaction of 
                 [] ->
@@ -158,7 +179,6 @@ matching_server() ->
                         % Have to specify a special pattern here otherwise the match_bids_to_asks were 
                         % processed in this receive
                         {matching_asks, Transaction_Id, Matching_Asks} ->
-                            io:format("Matching Transactions Found: ~n ~p ~n", [Matching_Asks]),
                             case Matching_Asks of 
                                 [] -> 
                                     fx_db:signal(self()),
@@ -176,7 +196,7 @@ matching_server() ->
         {match_ask_to_bids, Transaction_Id} ->
             fx_db:wait(self()),
             receive lock_achieved -> ok end,
-            io:format("Attempting to match ask with Transaction Id: ~p ~n", [Transaction_Id]),
+            io:format("Attempting to match Ask with Transaction Id: ~p ~n", [Transaction_Id]),
             Transaction = fx_db:read_by_id(Transaction_Id),
             case Transaction of 
                 [] ->
@@ -192,7 +212,6 @@ matching_server() ->
                         % Have to specify a special pattern here otherwise the match_bids_to_asks were 
                         % processed in this receive
                         {matching_bids, Transaction_Id, Matching_Bids} ->
-                            io:format("Matching Transactions Found: ~n ~p ~n", [Matching_Bids]),
                             case Matching_Bids of 
                                 [] -> 
                                     fx_db:signal(self()),
@@ -202,7 +221,6 @@ matching_server() ->
                                     Result = process_bids_against_ask(Ask, Matches),
                                     io:format("Result of consuming bids: ~p ~n", [Result]),
                                     fx_db:signal(self()),
-                                    io:format("Attempting to unlock ~n"),
                                     receive lock_removed -> ok end,
                                     matching_server()
                             end
@@ -214,6 +232,7 @@ find_matching_asks(Transaction_Id, Bid_Pair, Bid_Rate) ->
     Ask_Pair = #pair{source_currency=Bid_Pair#pair.target_currency, target_currency=Bid_Pair#pair.source_currency},
     Ask_Rate = 1 / Bid_Rate,
     Matching_Asks = fx_db:find_asks(Transaction_Id, Ask_Pair, Ask_Rate),
+    io:format("Asks Matching Bid Transaction Id ~p: ~p ~n", [Transaction_Id, Matching_Asks]),
     matching_server ! {matching_asks, Transaction_Id, Matching_Asks}.
 
 process_asks_against_bid(Bid, [Ask | T]) ->
@@ -287,12 +306,10 @@ process_asks_against_bid(_, []) ->
 
 
 find_matching_bids(Transaction_Id, Ask_Pair, Ask_Rate) ->
-    io:format("Ask Pair: ~p ~n", [Ask_Pair]),
-    io:format("Ask Rate: ~p ~n", [Ask_Rate]),
     Bid_Pair = #pair{source_currency=Ask_Pair#pair.target_currency, target_currency=Ask_Pair#pair.source_currency},
     Bid_Rate = 1 / Ask_Rate,
     Matching_Bids = fx_db:find_bids(Transaction_Id, Bid_Pair, Bid_Rate),
-    io:format("Matching Bids: ~p ~n", [Matching_Bids]),
+    io:format("Bids Matching Ask Transaction Id ~p: ~p ~n", [Transaction_Id, Matching_Bids]),
     matching_server ! {matching_bids, Transaction_Id, Matching_Bids}.
 
 process_bids_against_ask(Ask, [Bid | T]) ->
@@ -343,8 +360,25 @@ process_bids_against_ask(Ask, [Bid | T]) ->
 process_bids_against_ask(_, []) ->
     ok.
 
+read_all_transactions(Client) ->
+    fx ! {read_all, self()},
+    receive 
+        {ok, Response} ->
+            Client ! Response
+    end.
 
--spec notification(client(), Notification :: {ask | get, id(), Volume :: integer(), Amount :: float()}) -> ok.
-notification(Client, Notification) -> 
-    Client ! Notification.
-        
+
+parse_paired_transactions_to_orders_response(Paired_Transactions) ->
+    {ok, {ask, format_transactions_to_order_response(ask, Paired_Transactions)}, {bid, format_transactions_to_order_response(bid, Paired_Transactions)}}.
+
+format_transactions_to_order_response(Order_Type, [Transaction | T]) ->
+    Transaction_Type = Transaction#transaction.type,
+    case Transaction_Type of
+        Order_Type ->
+            [{Transaction#transaction.volume, Transaction#transaction.rate}|format_transactions_to_order_response(Order_Type, T)];
+        _ ->
+            format_transactions_to_order_response(Order_Type, T)
+    end;
+format_transactions_to_order_response(_, []) ->
+    [].
+    

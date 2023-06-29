@@ -1,6 +1,6 @@
 -module(fx_db).
 
--export([new/0, write/6, read_all/0, read_by_id/1, init/0, find_asks/3, find_bids/3, update_volume/2, delete_transaction/1, wait/1, signal/1, delete_for_client/2]).
+-export([new/0, write/6, read_all/0, read_by_id/1, init/0, find_asks/3, find_bids/3, update_volume/2, delete_transaction/1, wait/1, signal/1, delete_for_client/2, read_by_pair/1]).
 
 -include("pair_rate.hrl").
 
@@ -28,6 +28,12 @@ read_all() ->
 
 read_by_id(Transaction_Id) -> 
     transaction_server ! {read_by_id, Transaction_Id, self()},
+    receive
+        Response -> Response
+    end.
+
+read_by_pair({Source_Currency, Target_Currency}) -> 
+    transaction_server ! {read_by_pair, {Source_Currency, Target_Currency}, self()},
     receive
         Response -> Response
     end.
@@ -91,6 +97,16 @@ busy(Pid, TabId) ->
             Transaction = ets:select(TabId, [{{'_', '$1', '$2', {'_', '$3', '$4'}, '$5', '$6', '$7'}, [{'==', '$1', Transaction_Id}], [['$1', '$2', '$3', '$4', '$5', '$6', '$7']]}]),
             [Processed_Transaction | _] = form_transactions_from_select_result(Transaction),
             Pid ! Processed_Transaction,
+            busy(Pid,TabId);
+        {read_by_pair, {Source_Currency, Target_Currency}, Pid} -> 
+            Transactions = ets:select(TabId, [{{'_', '$1', '$2', {'_', '$3', '$4'}, '$5', '$6', '$7'}, 
+            [{'or',
+                {'and',{'==', '$2', bid},{'==', '$3', Source_Currency},{'==', '$4', Target_Currency}},
+                {'and',{'==', '$2', ask},{'==', '$3', Target_Currency},{'==', '$4', Source_Currency}}
+            }], 
+            [['$1', '$2', '$3', '$4', '$5', '$6', '$7']]}]),
+            Processed_Transactions = form_transactions_from_select_result(Transactions),
+            Pid ! Processed_Transactions,
             busy(Pid,TabId);
         {update_volume, Transaction_Id, New_Volume, Pid} ->
             ets:update_element(TabId, Transaction_Id, {#transaction.volume, New_Volume}),

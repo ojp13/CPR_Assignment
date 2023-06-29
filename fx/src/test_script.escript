@@ -103,6 +103,18 @@ main([String]) ->
             receive {ok, _} -> ok end,
             Cancel = fx:cancel(1),
             io:format("Transcation Cancelled: ~p ~n", [Cancel]),
+            wait_for_notifications();
+        "fx_orders" -> 
+            fx:start_link([gbp, eur, cad, chf]),
+            timer:sleep(200),
+            {ok, EurRate} = currency:get({usd, eur}),
+            io:format("Found eur Rate: ~p ~n", [EurRate]),
+            fx:bid({eur, usd}, 100, EurRate*0.97, self()),
+            receive {ok, _} -> ok end,
+            fx:ask({usd, eur}, 100, (1/EurRate)*1.03, self()),
+            receive {ok, _} -> ok end,
+            Orders = fx:orders({eur, usd}),
+            io:format("Found Orders: ~p ~n", [Orders]),
             wait_for_notifications()
     end;
 main(_) ->
